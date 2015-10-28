@@ -2955,6 +2955,7 @@ gst_adaptive_demux_stream_update_source (GstAdaptiveDemuxStream * stream,
     GstPadLinkReturn pad_link_ret;
     GObjectClass *gobject_class;
     gchar *internal_name, *bin_name;
+    GstContext* context;
 
     /* Our src consists of a bin containing uri_handler -> queue . The
      * purpose of the queue is to allow the uri_handler to download an
@@ -3004,6 +3005,19 @@ gst_adaptive_demux_stream_update_source (GstAdaptiveDemuxStream * stream,
       } else {
         g_object_set (uri_handler, "extra-headers", NULL, NULL);
       }
+    }
+
+    context =
+        gst_element_get_context (GST_ELEMENT_CAST (demux), "http-headers");
+    if (context) {
+      const GstStructure *s = gst_context_get_structure (context);
+      const gchar **cookies = NULL;
+      gst_structure_get (s, "cookies", G_TYPE_STRV, &cookies, NULL);
+      if (cookies) {
+        GST_DEBUG_OBJECT (demux, "Passing cookies through");
+        g_object_set (uri_handler, "cookies", cookies, NULL);
+      }
+      gst_context_unref (context);
     }
 
     /* Source bin creation */
