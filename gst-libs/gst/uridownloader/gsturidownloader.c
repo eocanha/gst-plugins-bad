@@ -467,6 +467,8 @@ gst_uri_downloader_set_uri (GstUriDownloader * downloader, const gchar * uri,
 {
   GstPad *pad;
   GObjectClass *gobject_class;
+  GstContext *context = NULL;
+  GstElement *parent = NULL;
 
   if (!gst_uri_is_valid (uri))
     return FALSE;
@@ -501,6 +503,32 @@ gst_uri_downloader_set_uri (GstUriDownloader * downloader, const gchar * uri,
     } else {
       g_object_set (downloader->priv->urisrc, "extra-headers", NULL, NULL);
     }
+  }
+
+  parent = g_weak_ref_get (&downloader->priv->parent);
+  context = gst_element_get_context (parent, "http-headers");
+  if (!context && parent) {
+    GstQuery *context_query = gst_query_new_context ("http-headers");
+    GstPad *parent_sink_pad =
+        gst_element_get_static_pad (parent, "sink");
+    if (gst_pad_peer_query (parent_sink_pad, context_query)) {
+
+      gst_query_parse_context (context_query, &context);
+      gst_element_set_context (parent, context);
+    }
+    gst_object_unref (parent_sink_pad);
+    gst_query_unref (context_query);
+  }
+
+  if (context) {
+    const GstStructure *s = gst_context_get_structure (context);
+    const gchar **cookies = NULL;
+    gst_structure_get (s, "cookies", G_TYPE_STRV, &cookies, NULL);
+    if (cookies) {
+      GST_DEBUG_OBJECT (downloader, "Passing cookies through");
+      g_object_set (downloader->priv->urisrc, "cookies", cookies, NULL);
+    }
+    gst_context_unref (context);
   }
 
   /* add a sync handler for the bus messages to detect errors in the download */
