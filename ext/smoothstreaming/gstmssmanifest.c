@@ -1216,6 +1216,11 @@ gst_mss_stream_seek (GstMssStream * stream, gboolean forward,
   GST_DEBUG ("Stream %s seeking to %" G_GUINT64_FORMAT, stream->url, time);
   for (iter = stream->fragments; iter; iter = g_list_next (iter)) {
     fragment = iter->data;
+    if(stream->has_live_fragments){
+      if (fragment->time + fragment->repetitions * fragment->duration > time)
+        stream->current_fragment = iter;
+      break;
+    }
     if (fragment->time + fragment->repetitions * fragment->duration > time) {
       stream->current_fragment = iter;
       stream->fragment_repetition_index =
@@ -1319,7 +1324,8 @@ gst_mss_stream_reload_fragments (GstMssStream * stream, xmlNodePtr streamIndex)
   if (builder.fragments) {
     g_list_free_full (stream->fragments, g_free);
     stream->fragments = g_list_reverse (builder.fragments);
-    stream->current_fragment = stream->fragments;
+    if (!stream->has_live_fragments)
+      stream->current_fragment = stream->fragments;
     /* TODO Verify how repositioning here works for reverse
      * playback - it might start from the wrong fragment */
     gst_mss_stream_seek (stream, TRUE, 0, current_gst_time, NULL);
