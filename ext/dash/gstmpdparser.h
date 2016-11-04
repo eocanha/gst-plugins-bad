@@ -277,6 +277,7 @@ struct _GstDescriptorType
 {
   gchar *schemeIdUri;
   gchar *value;
+  glong value_len;
 };
 
 struct _GstContentComponentNode
