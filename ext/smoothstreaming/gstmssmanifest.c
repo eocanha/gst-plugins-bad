@@ -1304,8 +1304,13 @@ static void
 gst_mss_stream_reload_fragments (GstMssStream * stream, xmlNodePtr streamIndex)
 {
   xmlNodePtr iter;
-  guint64 current_gst_time = gst_mss_stream_get_fragment_gst_timestamp (stream);
+  guint64 current_gst_time;
   GstMssFragmentListBuilder builder;
+
+  if (stream->has_live_fragments)
+    return;
+
+  current_gst_time = gst_mss_stream_get_fragment_gst_timestamp (stream);
 
   gst_mss_fragment_list_builder_init (&builder);
 
