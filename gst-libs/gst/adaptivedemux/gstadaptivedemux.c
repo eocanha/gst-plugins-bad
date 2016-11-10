@@ -997,6 +997,8 @@ gst_adaptive_demux_expose_streams (GstAdaptiveDemux * demux,
     }
   }
 
+  period_start = gst_adaptive_demux_get_period_start_time (demux);
+
   /* For live streams, the subclass is supposed to seek to the current
    * fragment and then tell us its timestamp in stream->fragment.timestamp.
    * We now also have to seek our demuxer segment to reflect this.
@@ -1005,11 +1007,9 @@ gst_adaptive_demux_expose_streams (GstAdaptiveDemux * demux,
    */
   if (first_and_live) {
     gst_segment_do_seek (&demux->segment, demux->segment.rate, GST_FORMAT_TIME,
-        GST_SEEK_FLAG_FLUSH, GST_SEEK_TYPE_SET, min_pts, GST_SEEK_TYPE_NONE, -1,
-        NULL);
+        GST_SEEK_FLAG_FLUSH, GST_SEEK_TYPE_SET, min_pts + period_start,
+        GST_SEEK_TYPE_NONE, -1, NULL);
   }
-
-  period_start = gst_adaptive_demux_get_period_start_time (demux);
 
   for (iter = demux->streams; iter; iter = g_list_next (iter)) {
     GstAdaptiveDemuxStream *stream = iter->data;
@@ -1067,7 +1067,13 @@ gst_adaptive_demux_expose_streams (GstAdaptiveDemux * demux,
      * equivalent.
      */
 
-    if (demux->segment.start > period_start) {
+    /* If first and live, demuxer did seek to the current position already */
+    if (first_and_live) {
+      stream->segment.start = demux->segment.start - period_start + offset;
+      stream->segment.position = stream->segment.start;
+      stream->segment.time = demux->segment.time;
+      stream->segment.base = demux->segment.base;
+    } else if (demux->segment.start > period_start) {
       stream->segment.start = demux->segment.start - period_start + offset;
       stream->segment.position = offset;
       stream->segment.time = demux->segment.time;
