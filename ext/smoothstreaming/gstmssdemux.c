@@ -146,6 +146,8 @@ static GstFlowReturn gst_mss_demux_data_received (GstAdaptiveDemux * demux,
     GstAdaptiveDemuxStream * stream, GstBuffer * buffer);
 static gboolean
 gst_mss_demux_requires_periodical_playlist_update (GstAdaptiveDemux * demux);
+static gboolean gst_mss_demux_get_live_seek_range (GstAdaptiveDemux * demux,
+    gint64 * start, gint64 * stop);
 
 static void
 gst_mss_demux_class_init (GstMssDemuxClass * klass)
@@ -206,6 +208,8 @@ gst_mss_demux_class_init (GstMssDemuxClass * klass)
   gstadaptivedemux_class->data_received = gst_mss_demux_data_received;
   gstadaptivedemux_class->requires_periodical_playlist_update =
       gst_mss_demux_requires_periodical_playlist_update;
+  gstadaptivedemux_class->get_live_seek_range =
+      gst_mss_demux_get_live_seek_range;
 
   GST_DEBUG_CATEGORY_INIT (mssdemux_debug, "mssdemux", 0, "mssdemux plugin");
 }
@@ -694,7 +698,6 @@ gst_mss_demux_update_manifest_data (GstAdaptiveDemux * demux,
   return GST_FLOW_OK;
 }
 
-
 static GstFlowReturn
 gst_mss_demux_data_received (GstAdaptiveDemux * demux,
     GstAdaptiveDemuxStream * stream, GstBuffer *buffer)
@@ -738,4 +741,13 @@ gst_mss_demux_requires_periodical_playlist_update (GstAdaptiveDemux * demux)
   GstMssDemux *mssdemux = GST_MSS_DEMUX_CAST (demux);
 
   return (!gst_mss_manifest_is_live (mssdemux->manifest));
+}
+
+static gboolean
+gst_mss_demux_get_live_seek_range (GstAdaptiveDemux * demux, gint64 * start,
+    gint64 * stop)
+{
+  GstMssDemux *mssdemux = GST_MSS_DEMUX_CAST (demux);
+
+  return gst_mss_manifest_get_live_seek_range (mssdemux->manifest, start, stop);
 }
