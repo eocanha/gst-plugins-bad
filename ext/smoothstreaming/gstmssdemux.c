@@ -121,6 +121,7 @@ static gboolean gst_mss_demux_process_manifest (GstAdaptiveDemux * demux,
     GstBuffer * buffer);
 static GstClockTime gst_mss_demux_get_duration (GstAdaptiveDemux * demux);
 static void gst_mss_demux_reset (GstAdaptiveDemux * demux);
+static void gst_mss_demux_stream_free (GstAdaptiveDemuxStream * stream);
 static GstFlowReturn gst_mss_demux_stream_seek (GstAdaptiveDemuxStream * stream,
     gboolean forward, GstSeekFlags flags, GstClockTime ts,
     GstClockTime * final_ts);
@@ -142,7 +143,7 @@ static GstFlowReturn
 gst_mss_demux_update_manifest_data (GstAdaptiveDemux * demux,
     GstBuffer * buffer);
 static GstFlowReturn gst_mss_demux_data_received (GstAdaptiveDemux * demux,
-    GstAdaptiveDemuxStream * stream);
+    GstAdaptiveDemuxStream * stream, GstBuffer * buffer);
 static gboolean
 gst_mss_demux_requires_periodical_playlist_update (GstAdaptiveDemux * demux);
 
@@ -188,6 +189,7 @@ gst_mss_demux_class_init (GstMssDemuxClass * klass)
       gst_mss_demux_get_manifest_update_interval;
   gstadaptivedemux_class->reset = gst_mss_demux_reset;
   gstadaptivedemux_class->seek = gst_mss_demux_seek;
+  gstadaptivedemux_class->stream_free = gst_mss_demux_stream_free;
   gstadaptivedemux_class->stream_seek = gst_mss_demux_stream_seek;
   gstadaptivedemux_class->stream_advance_fragment =
       gst_mss_demux_stream_advance_fragment;
@@ -314,6 +316,14 @@ gst_mss_demux_stream_update_fragment_info (GstAdaptiveDemuxStream * stream)
   g_free (path);
 
   return ret;
+}
+
+static void
+gst_mss_demux_stream_free (GstAdaptiveDemuxStream * stream)
+{
+  GstMssDemuxStream *mssstream = (GstMssDemuxStream *) stream;
+
+  g_object_unref (mssstream->adapter);
 }
 
 static GstFlowReturn
@@ -451,6 +461,7 @@ gst_mss_demux_setup_streams (GstAdaptiveDemux * demux)
         gst_adaptive_demux_stream_new (GST_ADAPTIVE_DEMUX_CAST (mssdemux),
         srcpad);
     stream->manifest_stream = manifeststream;
+    stream->adapter = gst_adapter_new();
     gst_mss_stream_set_active (manifeststream, TRUE);
     active_streams = g_slist_prepend (active_streams, stream);
   }
@@ -686,7 +697,7 @@ gst_mss_demux_update_manifest_data (GstAdaptiveDemux * demux,
 
 static GstFlowReturn
 gst_mss_demux_data_received (GstAdaptiveDemux * demux,
-    GstAdaptiveDemuxStream * stream)
+    GstAdaptiveDemuxStream * stream, GstBuffer *buffer)
 {
   GstMssDemux *mssdemux = GST_MSS_DEMUX_CAST (demux);
   GstMssDemuxStream *mssstream = (GstMssDemuxStream *) stream;
@@ -694,23 +705,31 @@ gst_mss_demux_data_received (GstAdaptiveDemux * demux,
 
   if (!gst_mss_manifest_is_live (mssdemux->manifest)) {
     return GST_ADAPTIVE_DEMUX_CLASS (parent_class)->data_received (demux,
-        stream);
+        stream, buffer);
   }
 
   if (gst_mss_stream_fragment_parsing_needed (mssstream->manifest_stream)) {
-    available = gst_adapter_available (stream->adapter);
+    gst_adapter_push (mssstream->adapter, buffer);
+
+    GST_DEBUG_OBJECT (stream->pad, "Received buffer of size %" G_GSIZE_FORMAT
+        ". Now %" G_GSIZE_FORMAT " on adapter", gst_buffer_get_size (buffer),
+        gst_adapter_available (mssstream->adapter));
+
+    available = gst_adapter_available (mssstream->adapter);
     // FIXME: try to reduce this minimal size.
     if (available < 4096) {
       return GST_FLOW_OK;
     } else {
-      GstBuffer *buffer = gst_adapter_get_buffer (stream->adapter, available);
+      // We use here the accumulated buffer from the adapter instead o the
+      // original one.
+      buffer = gst_adapter_get_buffer (mssstream->adapter, available);
+      gst_adapter_clear (mssstream->adapter);
       GST_LOG_OBJECT (stream->pad, "enough data, parsing fragment.");
       gst_mss_stream_fragment_parse (mssstream->manifest_stream, buffer);
-      gst_buffer_unref (buffer);
     }
   }
 
-  return GST_ADAPTIVE_DEMUX_CLASS (parent_class)->data_received (demux, stream);
+  return GST_ADAPTIVE_DEMUX_CLASS (parent_class)->data_received (demux, stream, buffer);
 }
 
 static gboolean

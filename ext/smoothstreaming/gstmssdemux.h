@@ -56,6 +56,7 @@ struct _GstMssDemuxStream {
   GstAdaptiveDemuxStream parent;
 
   GstMssStream *manifest_stream;
+  GstAdapter *adapter;
 };
 
 struct _GstMssDemux {
