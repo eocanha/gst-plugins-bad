@@ -211,10 +211,12 @@ gst_mss_fragment_parser_add_buffer (GstMssFragmentParser * parser,
     }
 
     if (fourcc != GST_MSS_FRAGMENT_FOURCC_UUID) {
-      GST_ERROR ("invalid UUID fourcc");
-      error = TRUE;
-      break;
+      GST_TRACE ("%" GST_FOURCC_FORMAT " box, skipping", GST_FOURCC_ARGS(fourcc));
+      gst_byte_reader_skip_unchecked (&reader, size - 8);
+      continue;
     }
+
+    GST_LOG ("uuid box found");
 
     if (!gst_byte_reader_peek_data (&reader, 16, &uuid)) {
       GST_ERROR ("not enough data in UUID box");
