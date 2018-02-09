@@ -1333,7 +1333,8 @@ calculate_skew (MpegTSPacketizer2 * packetizer,
   /* Handle PCR wraparound and resets */
   if (GST_CLOCK_TIME_IS_VALID (pcr->last_pcrtime) &&
       gstpcrtime < pcr->last_pcrtime) {
-    if (pcr->last_pcrtime - gstpcrtime > PCR_GST_MAX_VALUE / 2) {
+    /* DISABLED!!! */
+    if (FALSE && pcr->last_pcrtime - gstpcrtime > PCR_GST_MAX_VALUE / 2) {
       /* PCR wraparound */
       GST_DEBUG ("PCR wrap");
       pcr->pcroffset += PCR_GST_MAX_VALUE;
@@ -1521,6 +1522,12 @@ no_skew:
       out_time = 0;
     } else {
       out_time += pcr->skew;
+      /* If out_time is reset to 0, keep counting where we were last time.
+       * But this needs PCR wraparound detection to be disabled in order to work consistently */
+      if (out_time == 0) {
+        pcr->base_time += pcr->prev_out_time;
+        out_time = pcr->base_time + send_diff;
+      }
     }
     /* check if timestamps are not going backwards, we can only check this if we
      * have a previous out time and a previous send_diff */
