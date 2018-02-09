@@ -47,7 +47,8 @@ typedef struct _GstHLSMasterPlaylist GstHLSMasterPlaylist;
    GST_M3U8_LIVE_MIN_FRAGMENT_DISTANCE fragments. Section 6.3.3
    "Playing the Playlist file" of the HLS draft states that this
    value is three fragments */
-#define GST_M3U8_LIVE_MIN_FRAGMENT_DISTANCE 3
+/* Let's give more buffer and use 4 */
+#define GST_M3U8_LIVE_MIN_FRAGMENT_DISTANCE 4
 
 struct _GstM3U8
 {
