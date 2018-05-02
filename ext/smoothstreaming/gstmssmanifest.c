@@ -289,7 +289,7 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
             + ((GstMssStreamFragment*)builder.fragments->data)->duration
             - first_fragment_time) * GST_SECOND / DEFAULT_TIMESCALE;
         look_ahead_estimation_time = accumulated_time
-            * (builder.fragment_number + manifest->look_ahead_fragment_count)
+            * (builder.fragment_number + manifest->look_ahead_fragment_count + 5)
             / builder.fragment_number;
         if (dvr_window == GST_CLOCK_TIME_NONE
             || look_ahead_estimation_time >= dvr_window)
