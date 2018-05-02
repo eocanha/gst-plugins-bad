@@ -5040,6 +5040,7 @@ gst_mpd_client_get_next_fragment_timestamp (GstMpdClient * client,
 {
   GstActiveStream *stream;
   GstMediaSegment *currentChunk;
+  GstStreamPeriod *stream_period;
 
   GST_DEBUG ("Stream index: %i", stream_idx);
   stream = g_list_nth_data (client->active_streams, stream_idx);
@@ -5066,7 +5067,8 @@ gst_mpd_client_get_next_fragment_timestamp (GstMpdClient * client,
             && stream->segment_index >= segments_count)) {
       return FALSE;
     }
-    *ts = stream->segment_index * duration;
+    stream_period = gst_mpdparser_get_stream_period (client);
+    *ts = stream_period->start + stream->segment_index * duration;
   }
 
   return TRUE;
