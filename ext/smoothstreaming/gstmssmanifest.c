@@ -249,6 +249,7 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
 {
   xmlNodePtr iter;
   GstMssFragmentListBuilder builder;
+  GstClockTime first_fragment_time, dvr_window;
 
   gst_mss_fragment_list_builder_init (&builder);
 
@@ -269,9 +270,35 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
   stream->has_live_fragments = manifest->is_live
       && manifest->look_ahead_fragment_count;
 
+  first_fragment_time = dvr_window = GST_CLOCK_TIME_NONE;
+
+  if (stream->has_live_fragments && manifest->dvr_window)
+    dvr_window = manifest->dvr_window * GST_SECOND / DEFAULT_TIMESCALE;
+
   for (iter = node->children; iter; iter = iter->next) {
     if (node_has_type (iter, MSS_NODE_STREAM_FRAGMENT)) {
       gst_mss_fragment_list_builder_add (&builder, iter);
+
+      if (stream->has_live_fragments) {
+        /* Build enough fragments to hold dvr_window minus
+         * look_ahead_fragment_count plus some additional margin
+         */
+        GstClockTime accumulated_time, look_ahead_estimation_time;
+
+        if (first_fragment_time == GST_CLOCK_TIME_NONE && builder.fragments)
+            first_fragment_time = builder.fragment_time_accum;
+        accumulated_time =
+            (builder.fragment_time_accum
+            + ((GstMssStreamFragment*)builder.fragments->data)->duration
+            - first_fragment_time) * GST_SECOND / DEFAULT_TIMESCALE;
+        look_ahead_estimation_time = accumulated_time
+            * (builder.fragment_number + manifest->look_ahead_fragment_count + 7)
+            / builder.fragment_number;
+        if (dvr_window == GST_CLOCK_TIME_NONE
+            || look_ahead_estimation_time >= dvr_window)
+            break;
+      }
+
     } else if (node_has_type (iter, MSS_NODE_STREAM_QUALITY)) {
       GstMssStreamQuality *quality = gst_mss_stream_quality_new (iter);
       stream->qualities = g_list_prepend (stream->qualities, quality);
@@ -281,6 +308,13 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
   }
 
   if (stream->has_live_fragments) {
+    /* Skip all fragments except the first one (more recently added) */
+    GList* skipped;
+
+    stream->fragments = builder.fragments;
+    skipped = g_list_remove_link(builder.fragments, builder.fragments);
+    g_list_free_full (skipped, g_free);
+
     stream->live_adapter = gst_adapter_new ();
   }
 
