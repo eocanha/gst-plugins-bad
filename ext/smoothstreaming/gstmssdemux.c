@@ -501,7 +501,19 @@ gst_mss_demux_setup_streams (GstAdaptiveDemux * demux)
           gst_event_new_protection (protection_system_id, protection_buffer,
           "smooth-streaming");
 
-      GST_LOG_OBJECT (stream, "Queueing Protection event on source pad");
+      GstBuffer *key_id = gst_mss_manifest_get_key_id (mssdemux->manifest);
+      if (!gst_buffer_get_size (key_id)) {
+        GST_WARNING_OBJECT (stream,
+            "protected manifest, but no key ids available");
+      } else {
+        GST_LOG_OBJECT (stream,
+            "Adding key id to the protection event of size %lu",
+            gst_buffer_get_size (key_id));
+        GstStructure *structure = gst_event_writable_structure (event);
+        gst_structure_set (structure, "key_id", GST_TYPE_BUFFER, key_id, NULL);
+      }
+
+      GST_LOG_OBJECT (stream, "Queuing Protection event on source pad");
       gst_adaptive_demux_stream_queue_event ((GstAdaptiveDemuxStream *) stream,
           event);
       gst_buffer_unref (protection_buffer);

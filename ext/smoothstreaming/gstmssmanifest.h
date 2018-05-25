@@ -56,6 +56,7 @@ GstClockTime gst_mss_manifest_get_min_fragment_duration (GstMssManifest * manife
 const gchar * gst_mss_manifest_get_protection_system_id (GstMssManifest * manifest);
 const gchar * gst_mss_manifest_get_protection_data (GstMssManifest * manifest);
 gboolean gst_mss_manifest_get_live_seek_range (GstMssManifest * manifest, gint64 * start, gint64 * stop);
+GstBuffer * gst_mss_manifest_get_key_id (GstMssManifest * manifest);
 
 GstMssStreamType gst_mss_stream_get_type (GstMssStream *stream);
 GstCaps * gst_mss_stream_get_caps (GstMssStream * stream);
