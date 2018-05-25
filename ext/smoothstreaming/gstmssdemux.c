@@ -465,7 +465,7 @@ gst_mss_demux_setup_streams (GstAdaptiveDemux * demux)
         gst_adaptive_demux_stream_new (GST_ADAPTIVE_DEMUX_CAST (mssdemux),
         srcpad);
     stream->manifest_stream = manifeststream;
-    stream->adapter = gst_adapter_new();
+    stream->adapter = gst_adapter_new ();
     gst_mss_stream_set_active (manifeststream, TRUE);
     active_streams = g_slist_prepend (active_streams, stream);
   }
@@ -507,6 +507,18 @@ gst_mss_demux_setup_streams (GstAdaptiveDemux * demux)
       GstEvent *event =
           gst_event_new_protection (protection_system_id, protection_buffer,
           "smooth-streaming");
+
+      GstBuffer *key_id = gst_mss_manifest_get_key_id (mssdemux->manifest);
+      if (!gst_buffer_get_size (key_id)) {
+        GST_WARNING_OBJECT (stream,
+            "protected manifest, but no key ids available");
+      } else {
+        GST_LOG_OBJECT (stream,
+            "Adding key id to the protection event of size %lu",
+            gst_buffer_get_size (key_id));
+        GstStructure *structure = gst_event_writable_structure (event);
+        gst_structure_set (structure, "key_id", GST_TYPE_BUFFER, key_id, NULL);
+      }
 
       GST_LOG_OBJECT (stream, "Queuing Protection event on source pad");
       gst_adaptive_demux_stream_queue_event ((GstAdaptiveDemuxStream *) stream,
@@ -700,7 +712,7 @@ gst_mss_demux_update_manifest_data (GstAdaptiveDemux * demux,
 
 static GstFlowReturn
 gst_mss_demux_data_received (GstAdaptiveDemux * demux,
-    GstAdaptiveDemuxStream * stream, GstBuffer *buffer)
+    GstAdaptiveDemuxStream * stream, GstBuffer * buffer)
 {
   GstMssDemux *mssdemux = GST_MSS_DEMUX_CAST (demux);
   GstMssDemuxStream *mssstream = (GstMssDemuxStream *) stream;
@@ -732,7 +744,8 @@ gst_mss_demux_data_received (GstAdaptiveDemux * demux,
     }
   }
 
-  return GST_ADAPTIVE_DEMUX_CLASS (parent_class)->data_received (demux, stream, buffer);
+  return GST_ADAPTIVE_DEMUX_CLASS (parent_class)->data_received (demux, stream,
+      buffer);
 }
 
 static gboolean

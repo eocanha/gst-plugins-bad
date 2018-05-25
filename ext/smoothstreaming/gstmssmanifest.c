@@ -28,6 +28,8 @@
 #include <ctype.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
+#include <libxml/xpath.h>
+#include <libxml/xpathInternals.h>
 
 /* for parsing h264 codec data */
 #include <gst/codecparsers/gsth264parser.h>
@@ -108,6 +110,10 @@ struct _GstMssManifest
 
   GString *protection_system_id;
   gchar *protection_data;
+
+  // FIXME: There can be multiple key ids present in protected manifests.
+  gchar *key_id;
+  gsize key_id_len;
 
   GSList *streams;
 };
@@ -283,17 +289,18 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
         GstClockTime accumulated_time, look_ahead_estimation_time;
 
         if (first_fragment_time == GST_CLOCK_TIME_NONE && builder.fragments)
-            first_fragment_time = builder.fragment_time_accum;
+          first_fragment_time = builder.fragment_time_accum;
         accumulated_time =
             (builder.fragment_time_accum
-            + ((GstMssStreamFragment*)builder.fragments->data)->duration
+            + ((GstMssStreamFragment *) builder.fragments->data)->duration
             - first_fragment_time) * GST_SECOND / DEFAULT_TIMESCALE;
         look_ahead_estimation_time = accumulated_time
-            * (builder.fragment_number + manifest->look_ahead_fragment_count + 5)
+            * (builder.fragment_number + manifest->look_ahead_fragment_count +
+            5)
             / builder.fragment_number;
         if (dvr_window == GST_CLOCK_TIME_NONE
             || look_ahead_estimation_time >= dvr_window)
-            break;
+          break;
       }
     } else if (node_has_type (iter, MSS_NODE_STREAM_QUALITY)) {
       GstMssStreamQuality *quality = gst_mss_stream_quality_new (iter);
@@ -305,10 +312,10 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
 
   if (stream->has_live_fragments) {
     /* Skip all fragments except the first one (more recently added) */
-    GList* skipped;
+    GList *skipped;
 
     stream->fragments = builder.fragments;
-    skipped = g_list_remove_link(builder.fragments, builder.fragments);
+    skipped = g_list_remove_link (builder.fragments, builder.fragments);
     g_list_free_full (skipped, g_free);
 
     g_queue_init (&stream->live_fragments);
@@ -333,6 +340,122 @@ _gst_mss_stream_init (GstMssManifest * manifest, GstMssStream * stream,
   gst_mss_fragment_parser_init (&stream->fragment_parser);
 }
 
+static void
+_gst_mss_parse_protection_data (GstMssManifest * manifest)
+{
+  guchar *decoded_protection_data = NULL;
+  gsize decoded_protection_data_len = 0;
+  xmlChar *protection_data_text = NULL;
+  int protection_data_text_len = 0;
+  xmlDocPtr protection_data_xml = NULL;
+  // Note, this does not need to free'd, freeing the doc ptr will free this.
+  xmlNode *protection_data_root_element = NULL;
+  const xmlChar *protection_data_namespace = NULL;
+  xmlXPathContextPtr xpath_ctx = NULL;
+  xmlXPathObjectPtr xpath_obj = NULL;
+  xmlNodeSetPtr key_id_node = NULL;
+  gsize protection_data_xml_len = 0;
+  guchar *start_tag = NULL;
+
+  decoded_protection_data =
+      g_base64_decode (manifest->protection_data, &decoded_protection_data_len);
+
+  start_tag = decoded_protection_data;
+
+  // The protection data starts with a 10-byte PlayReady version
+  // header that needs to be skipped over to avoid XML parsing
+  // errors.
+  while (start_tag && *start_tag != '<')
+    start_tag++;
+
+  if (!start_tag) {
+    GST_ERROR ("failed to find a start tag in protection data payload");
+    goto beach;
+  }
+
+  protection_data_xml_len =
+      decoded_protection_data_len - (start_tag - decoded_protection_data);
+  protection_data_xml =
+      xmlReadMemory ((const gchar *) start_tag, protection_data_xml_len,
+      "protection_data", "utf-16", 0);
+
+  if (!protection_data_xml) {
+    GST_ERROR ("failed to parse protection data XML");
+    goto beach;
+  }
+
+  if (gst_debug_category_get_threshold (GST_CAT_DEFAULT) >= GST_LEVEL_MEMDUMP) {
+    xmlDocDumpMemoryEnc (protection_data_xml, &protection_data_text,
+        &protection_data_text_len, "utf8");
+    GST_MEMDUMP ("protection data XML", protection_data_text,
+        protection_data_text_len);
+    xmlFree (protection_data_text);
+  }
+
+  protection_data_root_element = xmlDocGetRootElement (protection_data_xml);
+  if (protection_data_root_element->type != XML_ELEMENT_NODE ||
+      xmlStrcmp (protection_data_root_element->name,
+          (const xmlChar *) "WRMHEADER") || !protection_data_root_element->ns) {
+    GST_ERROR ("invalid protection data XML");
+    goto beach;
+  }
+
+  xpath_ctx = xmlXPathNewContext (protection_data_xml);
+  if (!xpath_ctx) {
+    GST_ERROR ("failed to create xpath context");
+    goto beach;
+  }
+
+  protection_data_namespace = protection_data_root_element->ns->href;
+  if (xmlXPathRegisterNs (xpath_ctx, (const xmlChar *) "prhdr",
+          protection_data_namespace) < 0) {
+    GST_ERROR ("failed to register XML namespace");
+    goto beach;
+  }
+
+  xpath_obj =
+      xmlXPathEvalExpression ((const xmlChar *) "//prhdr:KID", xpath_ctx);
+  if (!xpath_obj) {
+    GST_DEBUG ("failed to eval XPath expression");
+    goto beach;
+  }
+
+  key_id_node = xpath_obj->nodesetval;
+  int num_key_ids = key_id_node ? key_id_node->nodeNr : 0;
+
+  GST_DEBUG ("found %d key ids", num_key_ids);
+
+  if (num_key_ids != 0 && (key_id_node->nodeTab[0]->type == XML_ELEMENT_NODE)) {
+    xmlChar *encoded_key_id = xmlNodeGetContent (key_id_node->nodeTab[0]);
+    gsize decoded_key_id_len;
+    guchar *decoded_key_id =
+        g_base64_decode ((const gchar *) encoded_key_id, &decoded_key_id_len);
+
+    GST_MEMDUMP ("key retrieved", decoded_key_id, decoded_key_id_len);
+
+    manifest->key_id = g_realloc (manifest->key_id, decoded_key_id_len);
+    memcpy (manifest->key_id, decoded_key_id, decoded_key_id_len);
+    manifest->key_id_len = decoded_key_id_len;
+
+    xmlFree (encoded_key_id);
+    g_free (decoded_key_id);
+  } else {
+    GST_ERROR ("invalid XML payload");
+    goto beach;
+  }
+
+beach:
+  if (decoded_protection_data)
+    g_free (decoded_protection_data);
+  if (xpath_ctx)
+    xmlXPathFreeContext (xpath_ctx);
+  if (xpath_obj)
+    xmlXPathFreeObject (xpath_obj);
+  if (protection_data_xml)
+    xmlFreeDoc (protection_data_xml);
+
+  return;
+}
 
 static void
 _gst_mss_parse_protection (GstMssManifest * manifest,
@@ -362,6 +485,7 @@ _gst_mss_parse_protection (GstMssManifest * manifest,
 
       manifest->protection_system_id = system_id;
       manifest->protection_data = (gchar *) xmlNodeGetContent (nodeiter);
+      _gst_mss_parse_protection_data (manifest);
       xmlFree (system_id_attribute);
       break;
     }
@@ -418,6 +542,9 @@ gst_mss_manifest_new (GstBuffer * data)
     }
   }
 
+  manifest->key_id = NULL;
+  manifest->key_id_len = 0;
+
   for (nodeiter = root->children; nodeiter; nodeiter = nodeiter->next) {
     if (nodeiter->type == XML_ELEMENT_NODE
         && (strcmp ((const char *) nodeiter->name, "StreamIndex") == 0)) {
@@ -464,6 +591,9 @@ gst_mss_manifest_free (GstMssManifest * manifest)
 
   g_slist_free_full (manifest->streams, (GDestroyNotify) gst_mss_stream_free);
 
+  if (manifest->key_id)
+    g_free (manifest->key_id);
+
   if (manifest->protection_system_id != NULL)
     g_string_free (manifest->protection_system_id, TRUE);
   xmlFree (manifest->protection_data);
@@ -484,6 +614,15 @@ const gchar *
 gst_mss_manifest_get_protection_data (GstMssManifest * manifest)
 {
   return manifest->protection_data;
+}
+
+GstBuffer *
+gst_mss_manifest_get_key_id (GstMssManifest * manifest)
+{
+  GstBuffer *key_id_buffer =
+      gst_buffer_new_allocate (NULL, manifest->key_id_len, NULL);
+  gst_buffer_fill (key_id_buffer, 0, manifest->key_id, manifest->key_id_len);
+  return key_id_buffer;
 }
 
 GSList *
@@ -1267,7 +1406,7 @@ gst_mss_stream_seek (GstMssStream * stream, gboolean forward,
   GST_DEBUG ("Stream %s seeking to %" G_GUINT64_FORMAT, stream->url, time);
   for (iter = stream->fragments; iter; iter = g_list_next (iter)) {
     fragment = iter->data;
-    if(stream->has_live_fragments){
+    if (stream->has_live_fragments) {
       if (fragment->time + fragment->repetitions * fragment->duration > time)
         stream->current_fragment = iter;
       break;
@@ -1583,7 +1722,7 @@ gst_mss_stream_fragment_parse (GstMssStream * stream, GstBuffer * buffer)
     GstMssStreamFragment *fragment;
 
     if (last == NULL)
-        break;
+      break;
     fragment = g_new (GstMssStreamFragment, 1);
     fragment->number = last->number + 1;
     fragment->repetitions = 1;
