@@ -488,9 +488,11 @@ gst_mss_demux_setup_streams (GstAdaptiveDemux * demux)
     }
 
     if (protected) {
+      gsize protection_data_len;
+      guchar *decoded_data =
+          g_base64_decode (protection_data, &protection_data_len);
       GstBuffer *protection_buffer =
-          gst_buffer_new_wrapped ((gpointer) protection_data,
-          strlen (protection_data));
+          gst_buffer_new_wrapped (decoded_data, protection_data_len);
       GstEvent *event =
           gst_event_new_protection (protection_system_id, protection_buffer,
           "smooth-streaming");
