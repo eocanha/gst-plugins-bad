@@ -1040,6 +1040,9 @@ gst_mss_manifest_get_min_fragment_duration (GstMssManifest * manifest)
   for (iter = manifest->streams; iter; iter = g_slist_next (iter)) {
     GstMssStream *stream = iter->data;
 
+    if (!stream->active)
+        continue;
+
     iter_dur = gst_mss_stream_get_fragment_gst_duration (stream);
     if (iter_dur != GST_CLOCK_TIME_NONE && iter_dur != 0) {
       if (GST_CLOCK_TIME_IS_VALID (dur)) {
