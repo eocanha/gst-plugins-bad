@@ -139,6 +139,7 @@ gst_mss_fragment_parser_add_buffer (GstMssFragmentParser * parser,
   GstMapInfo info;
   guint32 size;
   guint32 fourcc;
+  guint32 remaining;
   const guint8 *uuid;
   gboolean error = FALSE;
   gboolean mdat_box_found = FALSE;
@@ -194,7 +195,8 @@ gst_mss_fragment_parser_add_buffer (GstMssFragmentParser * parser,
   }
 
   while (!mdat_box_found) {
-    GST_TRACE ("remaining data: %u", gst_byte_reader_get_remaining (&reader));
+    remaining = gst_byte_reader_get_remaining (&reader);
+    GST_TRACE ("remaining data: %u", remaining);
     if (!gst_byte_reader_get_uint32_be (&reader, &size)) {
       GST_WARNING ("Failed to get box size, enough data?");
       error = TRUE;
@@ -207,6 +209,12 @@ gst_mss_fragment_parser_add_buffer (GstMssFragmentParser * parser,
     if (fourcc == GST_MSS_FRAGMENT_FOURCC_MDAT) {
       GST_LOG ("mdat box found");
       mdat_box_found = TRUE;
+      break;
+    }
+
+    if (size - 8 > remaining) {
+      GST_WARNING ("Not enough buffered data for parsing, try to raise the limit in gst_mss_demux_data_received()");
+      error = TRUE;
       break;
     }
 

@@ -720,7 +720,7 @@ gst_mss_demux_data_received (GstAdaptiveDemux * demux,
 
     available = gst_adapter_available (mssstream->adapter);
     // FIXME: try to reduce this minimal size.
-    if (available < 4096) {
+    if (available < 8192) {
       return GST_FLOW_OK;
     } else {
       // We use here the accumulated buffer from the adapter instead o the
