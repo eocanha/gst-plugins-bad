@@ -309,7 +309,11 @@ gst_mss_demux_stream_update_fragment_info (GstAdaptiveDemuxStream * stream)
   ret = gst_mss_stream_get_fragment_url (mssstream->manifest_stream, &path);
 
   if (ret == GST_FLOW_OK) {
-    stream->fragment.uri = g_strdup_printf ("%s/%s", mssdemux->base_url, path);
+    if (g_str_has_prefix(path, "http")) {
+      stream->fragment.uri = path;
+      path = NULL;
+    } else
+      stream->fragment.uri = g_strdup_printf ("%s/%s", mssdemux->base_url, path);
     stream->fragment.timestamp =
         gst_mss_stream_get_fragment_gst_timestamp (mssstream->manifest_stream);
     stream->fragment.duration =
