@@ -71,6 +71,7 @@ GstFlowReturn gst_mss_stream_advance_fragment (GstMssStream * stream);
 GstFlowReturn gst_mss_stream_regress_fragment (GstMssStream * stream);
 void gst_mss_stream_seek (GstMssStream * stream, gboolean forward, GstSeekFlags flags, guint64 time, guint64 * final_time);
 const gchar * gst_mss_stream_get_lang (GstMssStream * stream);
+guint64 gst_mss_stream_get_first_fragment_gst_timestamp (GstMssStream * stream);
 
 const gchar * gst_mss_stream_type_name (GstMssStreamType streamtype);
 

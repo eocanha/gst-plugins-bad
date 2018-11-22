@@ -214,6 +214,76 @@ gst_mss_demux_class_init (GstMssDemuxClass * klass)
   GST_DEBUG_CATEGORY_INIT (mssdemux_debug, "mssdemux", 0, "mssdemux plugin");
 }
 
+static GstPadProbeReturn live_as_vod_pts_fixer_probe (GstPad *pad,
+    GstPadProbeInfo *info, gpointer user_data)
+{
+    const GstClockTime* live_as_vod_offset = (const GstClockTime*)user_data;
+    GstBuffer* buffer = GST_PAD_PROBE_INFO_BUFFER(info);
+
+    if (G_LIKELY(GST_BUFFER_PTS(buffer) != GST_CLOCK_TIME_NONE))
+        GST_BUFFER_PTS(buffer) -= *live_as_vod_offset;
+
+    return GST_PAD_PROBE_OK;
+}
+
+// This function installs probes to offset PTSs on those non-live streams
+// which don't start from zero (because they're just live streams reconverted
+// to non-live). The offset will adjust the PTSs to start from zero, so the
+// stream behaves as a well formed non-live stream.
+static void setup_live_as_vod_offset (GstElement *element, gpointer user_data)
+{
+    GstAdaptiveDemux *adaptivedemux = GST_ADAPTIVE_DEMUX_CAST (element);
+    GstMssDemux *mssdemux = GST_MSS_DEMUX_CAST (element);
+    GstClockTime stream_start_time, live_as_vod_offset = GST_CLOCK_TIME_NONE;
+    GList* streams;
+    GstIterator* it;
+    GValue item = G_VALUE_INIT;
+
+    GST_DEBUG_OBJECT(element, "No more pads, setting up live-as-VoD offset");
+
+    if (gst_mss_manifest_is_live (mssdemux->manifest)) {
+        GST_DEBUG_OBJECT(element, "Stream is live, doing nothing");
+        return;
+    }
+
+    if (!adaptivedemux->streams) {
+        GST_WARNING_OBJECT (adaptivedemux, "No streams yet");
+        return;
+    }
+
+    for (streams = adaptivedemux->streams; streams; streams = streams->next) {
+      GstMssDemuxStream* mssdemuxstream = (GstMssDemuxStream*)(adaptivedemux->streams->data);
+      stream_start_time = (gst_mss_manifest_is_live (mssdemux->manifest)) ? GST_CLOCK_TIME_NONE :
+          gst_mss_stream_get_first_fragment_gst_timestamp(mssdemuxstream->manifest_stream);
+      if (stream_start_time == 0)
+        stream_start_time = GST_CLOCK_TIME_NONE;
+
+      // This assumes that GST_CLOCK_TIME_NONE is larger than any valid time value
+      if (stream_start_time < live_as_vod_offset)
+          live_as_vod_offset = stream_start_time;
+    }
+
+    if (live_as_vod_offset == GST_CLOCK_TIME_NONE) {
+        GST_DEBUG_OBJECT(element, "All streams start at zero, doing nothing");
+        return;
+    }
+
+    GST_DEBUG_OBJECT (mssdemux, "Minimal offset: %" GST_TIME_FORMAT ", installing probes",
+        GST_TIME_ARGS(live_as_vod_offset));
+
+    it = gst_element_iterate_src_pads(element);
+    while (gst_iterator_next (it, &item) == GST_ITERATOR_OK) {
+      GstPad* pad = GST_PAD(g_value_get_object(&item));
+      GstClockTime* p = g_new (GstClockTime, 1);
+      *p = live_as_vod_offset;
+      GST_DEBUG_OBJECT (pad, "Adding live-as-VoD PTS fixer probe");
+      gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, live_as_vod_pts_fixer_probe, p, g_free);
+      g_value_reset (&item);
+    }
+    g_value_unset (&item);
+    gst_iterator_free (it);
+}
+
 static void
 gst_mss_demux_init (GstMssDemux * mssdemux)
 {
@@ -221,6 +291,8 @@ gst_mss_demux_init (GstMssDemux * mssdemux)
 
   gst_adaptive_demux_set_stream_struct_size (GST_ADAPTIVE_DEMUX_CAST (mssdemux),
       sizeof (GstMssDemuxStream));
+
+  g_signal_connect(GST_ELEMENT(mssdemux), "no-more-pads", G_CALLBACK(setup_live_as_vod_offset), NULL);
 }
 
 static void
