@@ -1272,6 +1272,30 @@ gst_mss_stream_get_fragment_gst_timestamp (GstMssStream * stream)
       timescale);
 }
 
+guint64 gst_mss_stream_get_first_fragment_gst_timestamp (GstMssStream * stream)
+{
+  guint64 time;
+  guint64 timescale;
+  GstMssStreamFragment *fragment;
+  GList *last;
+
+  g_return_val_if_fail (stream->active, GST_CLOCK_TIME_NONE);
+
+  last = g_list_first (stream->fragments);
+  if (last == NULL)
+    return GST_CLOCK_TIME_NONE;
+
+  fragment = last->data;
+
+  GST_LOG_OBJECT (stream, "fragment #%d, time %" GST_TIME_FORMAT,
+      fragment->number, GST_TIME_ARGS(fragment->time));
+
+  time = fragment->time;
+  timescale = gst_mss_stream_get_timescale (stream);
+  return (GstClockTime) gst_util_uint64_scale_round (time, GST_SECOND,
+      timescale);
+}
+
 GstClockTime
 gst_mss_stream_get_fragment_gst_duration (GstMssStream * stream)
 {
